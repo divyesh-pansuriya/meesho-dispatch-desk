@@ -120,6 +120,14 @@ dialog::backdrop { background: rgba(0,0,0,.5); }
 .kv { display: grid; grid-template-columns: 110px minmax(0, 1fr); gap: 4px 10px; font-size: 14px; }
 .kv dt { color: var(--muted); } .kv dd { margin: 0; overflow-wrap: anywhere; }
 .mono { font-family: var(--font-mono); font-weight: 600; }
+.fx { position: fixed; inset: 0; z-index: 40; display: grid; place-items: center; text-align: center; color: #fff; padding: 24px; pointer-events: none; background: #14a35c; }
+.fx[data-kind="warn"] { background: #d98a06; }
+.fx[data-kind="bad"] { background: #d3302f; }
+.fx-i { display: grid; gap: 10px; justify-items: center; max-width: 100%; }
+.fx svg { width: 96px; height: 96px; }
+.fx-h { font: 700 34px/1.1 var(--font-display); text-wrap: balance; overflow-wrap: anywhere; }
+.fx-a { font: 600 18px var(--font-mono); overflow-wrap: anywhere; opacity: .95; }
+@media (prefers-reduced-motion: no-preference) { .fx:not([hidden]) { animation: fxin .12s ease-out; } @keyframes fxin { from { opacity: 0; } to { opacity: 1; } } }
 </style>
 </head>
 <body>
@@ -238,6 +246,7 @@ dialog::backdrop { background: rgba(0,0,0,.5); }
 
 <dialog id="dlg"><div class="dlg" id="dlgBody"></div></dialog>
 <div class="toast" id="toast" hidden></div>
+<div class="fx" id="fx" hidden aria-hidden="true"></div>
 
 <script>
 /* PURE:start  (no DOM, no network; unit-tested in node) */
@@ -429,15 +438,38 @@ if (typeof module !== "undefined") module.exports = { parseLabel: parseLabel, ma
   var toastT = null;
   function toast(msg) { var t = $("toast"); t.textContent = msg; t.hidden = false; clearTimeout(toastT); toastT = setTimeout(function () { t.hidden = true; }, 3200); }
   var actx = null;
+  function tone(freq, start, dur, type, vol) {
+    var t0 = actx.currentTime + start, o = actx.createOscillator(), g = actx.createGain();
+    o.type = type; o.frequency.value = freq;
+    g.gain.setValueAtTime(vol, t0); g.gain.exponentialRampToValueAtTime(0.001, t0 + dur);
+    o.connect(g); g.connect(actx.destination); o.start(t0); o.stop(t0 + dur + 0.03);
+  }
+  /* ok = rising two-note "ding-ding", warn = two mid beeps, bad = one long low buzz */
   function feedback(kind) {
     try {
       actx = actx || new (window.AudioContext || window.webkitAudioContext)();
-      var o = actx.createOscillator(), g = actx.createGain();
-      o.type = "sine"; o.frequency.value = kind === "ok" ? 880 : kind === "warn" ? 520 : 220;
-      g.gain.value = 0.12; o.connect(g); g.connect(actx.destination);
-      o.start(); o.stop(actx.currentTime + (kind === "ok" ? 0.1 : 0.28));
+      if (actx.state === "suspended") actx.resume();
+      if (kind === "ok") { tone(880, 0, 0.12, "sine", 0.6); tone(1320, 0.12, 0.2, "sine", 0.6); }
+      else if (kind === "warn") { tone(520, 0, 0.16, "triangle", 0.6); tone(520, 0.22, 0.16, "triangle", 0.6); }
+      else { tone(170, 0, 0.5, "square", 0.3); }
     } catch (e) {}
-    try { if (navigator.vibrate) navigator.vibrate(kind === "ok" ? 40 : [80, 50, 80]); } catch (e) {}
+    try { if (navigator.vibrate) navigator.vibrate(kind === "ok" ? 60 : [120, 60, 120]); } catch (e) {}
+  }
+  var FX_ICON = {
+    ok: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M7.5 12.5l3 3 6-7"/></svg>',
+    warn: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l10 18H2z"/><path d="M12 10v5M12 18h.01"/></svg>',
+    bad: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M8 8l8 8M16 8l-8 8"/></svg>'
+  };
+  var fxT = null;
+  /* Full-screen colour flash so a scan is clear even without sound (iPhone silent switch mutes web audio) */
+  function flashFx(kind, head, awb) {
+    if (!FX_ICON[kind]) return;
+    var el = $("fx");
+    el.dataset.kind = kind;
+    el.innerHTML = '<div class="fx-i">' + FX_ICON[kind] + '<div class="fx-h">' + esc(head) + "</div>" + (awb ? '<div class="fx-a">' + esc(awb) + "</div>" : "") + "</div>";
+    el.hidden = false;
+    clearTimeout(fxT);
+    fxT = setTimeout(function () { el.hidden = true; }, kind === "ok" ? 1000 : 1600);
   }
   function setNet() {
     var c = $("net");
@@ -464,6 +496,7 @@ if (typeof module !== "undefined") module.exports = { parseLabel: parseLabel, ma
   function showResult(kind, head, awb, body, canUndo) {
     var r = $("result"); S.lastResultId++;
     r.dataset.kind = kind;
+    flashFx(kind, head, awb);
     r.innerHTML = '<div class="r-head">' + esc(head) + '</div>' + (awb ? '<div class="r-awb">' + esc(awb) + '</div>' : "") + '<div class="r-body">' + body + "</div>" +
       (canUndo ? '<button class="btn sm" type="button" id="undoBtn" data-awb="' + esc(canUndo) + '">Undo this scan</button>' : "");
     return S.lastResultId;
