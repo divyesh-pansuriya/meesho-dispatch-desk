@@ -231,6 +231,13 @@ dialog::backdrop { background: rgba(0,0,0,.5); }
     <p class="hint" id="cfgMsg"></p>
   </div>
   <div class="card">
+    <h2>Clear data</h2>
+    <p class="hint">Download the Excel file from Reports first. Clearing cannot be undone. Clearing only the scan log keeps each parcel&#8217;s status as it is.</p>
+    <button class="btn danger" id="clearScans" type="button">Clear scan log</button>
+    <button class="btn danger" id="clearAll" type="button">Clear all orders and scans</button>
+    <p class="hint" id="clearMsg"></p>
+  </div>
+  <div class="card">
     <h2>Practice data</h2>
     <p class="hint">Practice mode keeps six sample parcels from your label PDF on this phone only, so you can test the camera before connecting the sheet.</p>
     <button class="btn danger" id="resetLocal" type="button">Reset practice data</button>
@@ -411,9 +418,10 @@ if (typeof module !== "undefined") module.exports = { parseLabel: parseLabel, ma
   }
   function loadOrders() {
     var saved = get(ordersKey(), null);
-    S.orders = saved || (remote() ? [] : seedLocal());
+    S.orders = (saved || (remote() ? [] : seedLocal())).filter(hasAwb);
     reindex();
   }
+  function hasAwb(o) { return !!o && String(o.awb == null ? "" : o.awb).trim() !== ""; }   /* blank sheet rows are not parcels */
   function saveOrders() { put(ordersKey(), S.orders); }
   function reindex() { idx = new Map(); S.orders.forEach(function (o) { idx.set(norm(o.awb), o); }); }
   function findOrder(code) { return idx.get(norm(code)) || findIn(S.orders, code); }
@@ -746,7 +754,7 @@ if (typeof module !== "undefined") module.exports = { parseLabel: parseLabel, ma
     try {
       var r = await api("orders.list");
       if (!r.ok) { S.net = "bad"; setNet(); toast(errText(r.error)); return; }
-      S.orders = r.orders; reindex(); saveOrders(); S.net = "ok";
+      S.orders = r.orders.filter(hasAwb); reindex(); saveOrders(); S.net = "ok";
     } catch (e) { S.net = "bad"; }
     setNet(); renderOrders(true); renderScanBits();
   }
@@ -922,6 +930,37 @@ if (typeof module !== "undefined") module.exports = { parseLabel: parseLabel, ma
     S.log = []; S.recent = []; put("oms:log", []); put("oms:recent", []);
     loadOrders(); renderScanBits(); toast("Practice data reset");
   });
+  async function doClear(scope) {
+    var msg = $("clearMsg");
+    if (remote()) {
+      msg.textContent = "Clearing…";
+      try {
+        var r = await api("data.clear", { scope: scope, confirm: "CLEAR" });
+        if (!r.ok) { msg.textContent = r.error === "unknown_action" ? "The sheet script is out of date. Paste the new Code.gs and deploy a new version, then try again." : errText(r.error); return; }
+      } catch (e) { msg.textContent = "No connection. Nothing was cleared."; return; }
+    }
+    if (scope === "all") { S.orders = []; S.queue = []; put("oms:queue", S.queue); reindex(); saveOrders(); }
+    S.recent = []; put("oms:recent", S.recent);
+    S.log = []; put("oms:log", S.log); repScans = [];
+    renderScanBits(); renderOrders(true);
+    showResult("idle", "Cleared", "", scope === "all" ? "All orders and scans were cleared. Import labels to start again." : "The scan log was cleared.");
+    msg.textContent = "Done.";
+    setNet();
+  }
+  function armClear(id, label, armedLabel, scope) {
+    var b = $(id), t = null;
+    b.addEventListener("click", function () {
+      if (!b.dataset.armed) {
+        b.dataset.armed = "1"; b.textContent = armedLabel;
+        t = setTimeout(function () { delete b.dataset.armed; b.textContent = label; }, 4000);
+        return;
+      }
+      clearTimeout(t); delete b.dataset.armed; b.textContent = label;
+      doClear(scope);
+    });
+  }
+  armClear("clearScans", "Clear scan log", "Tap again to clear the scan log", "scans");
+  armClear("clearAll", "Clear all orders and scans", "Tap again to delete everything", "all");
   window.addEventListener("online", function () { S.net = "ok"; flush(); });
   window.addEventListener("offline", function () { S.net = "bad"; setNet(); });
   document.addEventListener("visibilitychange", function () { if (document.hidden) camStop(); });
