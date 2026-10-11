@@ -1,0 +1,907 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#8e1e7e">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<title>Meesho Dispatch Desk</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,700&family=IBM+Plex+Mono:wght@500;600&family=Schibsted+Grotesk:wght@400;500;600&display=swap">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@zxing/library@0.21.3/umd/index.min.js"></script>
+<style>
+/* Layout: one phone-width column. Four views behind a fixed bottom tab bar: Scan, Orders, Reports, Setup. The camera and the big result card sit at the top of Scan. */
+:root {
+  color-scheme: light dark;
+  --bg: #f3f2f8; --surface: #ffffff; --ink: #1f1b2d; --muted: #6b6680; --line: #dddae8;
+  --accent: #8e1e7e; --accent-ink: #ffffff; --accent-soft: #f3dcef;
+  --ok: #0f6b3f; --ok-bg: #d6f1e2; --warn: #7d4a00; --warn-bg: #fbe8c2; --bad: #a3211a; --bad-bg: #fad4cf;
+  --font-display: "Bricolage Grotesque", "Segoe UI", system-ui, sans-serif;
+  --font-body: "Schibsted Grotesk", "Segoe UI", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #151221; --surface: #1f1b30; --ink: #efedf7; --muted: #a29db8; --line: #35304a;
+    --accent: #d86cc8; --accent-ink: #1b0f19; --accent-soft: #3a2236;
+    --ok: #66d697; --ok-bg: #133726; --warn: #f2b45a; --warn-bg: #3e2c0b; --bad: #ff8a80; --bad-bg: #451b18;
+  }
+}
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+[hidden] { display: none !important; }
+html, body { margin: 0; }
+body { background: var(--bg); color: var(--ink); font: 15px/1.4 var(--font-body); padding-bottom: calc(76px + env(safe-area-inset-bottom, 0px)); }
+button, input, select { font: inherit; color: inherit; }
+.wrap { max-width: 600px; margin-inline: auto; padding: calc(14px + env(safe-area-inset-top, 0px)) 16px 16px; display: grid; gap: 12px; }
+h1 { margin: 0; font: 700 26px/1.05 var(--font-display); letter-spacing: -.01em; }
+h2 { margin: 0; font: 600 16px var(--font-body); }
+.eyebrow { margin: 0 0 2px; font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
+.topbar { display: flex; justify-content: space-between; align-items: flex-end; gap: 10px; }
+.chipnet { font-size: 12px; font-weight: 600; padding: 5px 10px; border-radius: 99px; border: 1px solid var(--line); background: var(--surface); white-space: nowrap; }
+.chipnet[data-s="ok"] { color: var(--ok); } .chipnet[data-s="wait"] { color: var(--warn); } .chipnet[data-s="off"] { color: var(--muted); }
+
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; border: 1.5px solid var(--line); background: var(--surface); border-radius: 10px; padding: 12px 16px; font-weight: 600; cursor: pointer; text-align: center; min-height: 46px; }
+.btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.btn.sm { padding: 8px 12px; min-height: 38px; font-size: 14px; border-radius: 8px; }
+.btn.danger { color: var(--bad); }
+.btn[disabled] { opacity: .5; }
+.btn:focus-visible, input:focus-visible, select:focus-visible, .tab:focus-visible, .navb:focus-visible { outline: 3px solid var(--accent-soft); outline-offset: 1px; }
+.row2 { display: flex; gap: 8px; flex-wrap: wrap; } .row2 > * { flex: 1 1 130px; }
+.seg { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; background: var(--line); padding: 4px; border-radius: 12px; }
+.seg button { border: 0; background: transparent; border-radius: 9px; padding: 12px; font-weight: 600; font-size: 16px; cursor: pointer; }
+.seg button[aria-pressed="true"] { background: var(--surface); box-shadow: 0 1px 2px rgba(0,0,0,.15); }
+.seg button[aria-pressed="true"][data-m="DISPATCH"] { color: var(--ok); }
+.seg button[aria-pressed="true"][data-m="RETURN"] { color: var(--warn); }
+input[type=text], input[type=search], input[type=password], input[type=url], input[type=date], select { width: 100%; padding: 12px; border-radius: 10px; border: 1.5px solid var(--line); background: var(--surface); font-size: 16px; min-height: 46px; }
+label.f { display: grid; gap: 4px; font-size: 13px; font-weight: 600; color: var(--muted); }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 14px; display: grid; gap: 10px; }
+.hint { margin: 0; font-size: 13px; color: var(--muted); max-width: 65ch; }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+.cam { position: relative; background: #0d0b16; border-radius: 14px; overflow: hidden; aspect-ratio: 4 / 3; max-height: 46vh; width: 100%; }
+.cam video { width: 100%; height: 100%; object-fit: cover; display: block; }
+.reticle { position: absolute; left: 6%; right: 6%; top: 36%; height: 28%; border: 2px solid rgba(255,255,255,.9); border-radius: 10px; box-shadow: 0 0 0 9999px rgba(0,0,0,.35); pointer-events: none; }
+.reticle::after { content: ""; position: absolute; left: 6px; right: 6px; top: 50%; height: 2px; background: #ff4d6d; opacity: .8; }
+.cam-msg { position: absolute; inset: 0; display: grid; place-content: center; text-align: center; color: #e9e6f5; padding: 20px; gap: 10px; }
+.cam-tools { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.cam-tools input[type=range] { flex: 1 1 140px; min-width: 0; }
+
+.result { border-radius: 14px; padding: 14px 16px; display: grid; gap: 4px; border: 1px solid var(--line); background: var(--surface); }
+.result[data-kind="ok"] { background: var(--ok-bg); color: var(--ok); border-color: transparent; }
+.result[data-kind="warn"] { background: var(--warn-bg); color: var(--warn); border-color: transparent; }
+.result[data-kind="bad"] { background: var(--bad-bg); color: var(--bad); border-color: transparent; }
+.result .r-head { font: 700 24px/1.1 var(--font-display); }
+.result .r-awb { font: 600 15px var(--font-mono); overflow-wrap: anywhere; }
+.result .r-body { font-size: 14px; color: inherit; overflow-wrap: anywhere; }
+.result[data-kind="idle"] .r-body, .result[data-kind="idle"] .r-head { color: var(--muted); }
+.result .btn { margin-top: 6px; background: transparent; color: inherit; border-color: currentColor; justify-self: start; }
+
+.stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.stat { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; }
+.stat b { display: block; font: 700 26px/1 var(--font-display); font-variant-numeric: tabular-nums; }
+.stat span { font-size: 12px; color: var(--muted); }
+.list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.item { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 11px 12px; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 10px; cursor: pointer; }
+.item .awb { font: 600 14px var(--font-mono); overflow-wrap: anywhere; }
+.item .who { font-weight: 600; overflow-wrap: anywhere; }
+.item .meta { font-size: 13px; color: var(--muted); overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+.pill { font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; border-radius: 6px; padding: 3px 7px; align-self: start; white-space: nowrap; }
+.pill.Pending { background: var(--line); color: var(--muted); }
+.pill.Dispatched { background: var(--ok-bg); color: var(--ok); }
+.pill.Returned { background: var(--warn-bg); color: var(--warn); }
+.pill.bad { background: var(--bad-bg); color: var(--bad); }
+.chip { font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; border: 1px solid var(--line); color: var(--muted); border-radius: 6px; padding: 1px 6px; margin-left: 4px; font-family: var(--font-body); }
+.chip.cod { border-color: var(--warn); color: var(--warn); }
+.tabs { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 2px; }
+.tab { flex: none; border: 1.5px solid var(--line); background: var(--surface); border-radius: 99px; padding: 8px 14px; font-weight: 500; cursor: pointer; font-variant-numeric: tabular-nums; }
+.tab[aria-pressed="true"] { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+.empty { text-align: center; color: var(--muted); padding: 22px 12px; border: 1px dashed var(--line); border-radius: 12px; }
+.tblwrap { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 14px; font-variant-numeric: tabular-nums; }
+th, td { text-align: right; padding: 8px 6px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+th:first-child, td:first-child { text-align: left; }
+th { font-size: 12px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: .05em; }
+.bars { display: grid; gap: 6px; }
+.bar { display: grid; grid-template-columns: 90px 1fr 36px; gap: 8px; align-items: center; font-size: 13px; }
+.bar i { display: block; height: 10px; border-radius: 99px; background: var(--accent); min-width: 2px; }
+
+nav.bottom { position: fixed; left: 0; right: 0; bottom: 0; background: var(--surface); border-top: 1px solid var(--line); display: grid; grid-template-columns: repeat(4, 1fr); padding-bottom: env(safe-area-inset-bottom, 0px); z-index: 5; }
+.navb { border: 0; background: transparent; padding: 10px 4px 9px; font-size: 12px; font-weight: 600; color: var(--muted); display: grid; justify-items: center; gap: 3px; cursor: pointer; }
+.navb[aria-current="page"] { color: var(--accent); }
+.navb svg { width: 24px; height: 24px; }
+.toast { position: fixed; left: 16px; right: 16px; bottom: calc(88px + env(safe-area-inset-bottom, 0px)); max-width: 560px; margin-inline: auto; background: var(--ink); color: var(--bg); padding: 12px 14px; border-radius: 12px; font-weight: 500; z-index: 20; }
+dialog { border: 0; border-radius: 16px; padding: 0; width: min(560px, calc(100% - 24px)); background: var(--surface); color: var(--ink); max-height: 86vh; }
+dialog::backdrop { background: rgba(0,0,0,.5); }
+.dlg { padding: 16px; display: grid; gap: 10px; }
+.kv { display: grid; grid-template-columns: 110px minmax(0, 1fr); gap: 4px 10px; font-size: 14px; }
+.kv dt { color: var(--muted); } .kv dd { margin: 0; overflow-wrap: anywhere; }
+.mono { font-family: var(--font-mono); font-weight: 600; }
+</style>
+</head>
+<body>
+
+<!-- ============ SCAN ============ -->
+<main class="wrap" data-view="scan">
+  <div class="topbar">
+    <div><p class="eyebrow">Meesho parcels</p><h1>Dispatch Desk</h1></div>
+    <span class="chipnet" id="net" data-s="off">Practice mode</span>
+  </div>
+
+  <div class="seg" role="group" aria-label="Scan mode">
+    <button type="button" data-m="DISPATCH" aria-pressed="true">Dispatch</button>
+    <button type="button" data-m="RETURN" aria-pressed="false">Return / RTO</button>
+  </div>
+  <label class="f" id="reasonWrap" hidden>Return reason
+    <select id="reason">
+      <option>Customer return</option><option>RTO (undelivered)</option><option>Wrong item</option><option>Damaged</option><option>Other</option>
+    </select>
+  </label>
+
+  <div class="cam" id="cam">
+    <video id="video" playsinline muted autoplay></video>
+    <div class="reticle" id="reticle" hidden></div>
+    <div class="cam-msg" id="camMsg">
+      <strong>Camera is off</strong>
+      <span>Tap Start camera, then hold the long barcode inside the box.</span>
+    </div>
+  </div>
+  <div class="cam-tools">
+    <button class="btn primary" id="camBtn" type="button">Start camera</button>
+    <button class="btn" id="torchBtn" type="button" hidden>Light</button>
+    <input id="zoom" type="range" min="1" max="4" step="0.1" value="1" aria-label="Zoom" hidden>
+  </div>
+
+  <div class="result" id="result" data-kind="idle" role="status" aria-live="assertive">
+    <div class="r-head">Ready to scan</div>
+    <div class="r-body">Dispatch mode marks the parcel as handed to the courier. Return mode marks it as returned.</div>
+  </div>
+
+  <form id="manualForm" autocomplete="off" class="row2" style="flex-wrap:nowrap">
+    <input id="manual" type="text" enterkeyhint="done" autocapitalize="characters" autocorrect="off" spellcheck="false" placeholder="Type or use a Bluetooth scanner" aria-label="AWB number">
+    <button class="btn primary" type="submit" style="flex:none">Add</button>
+  </form>
+
+  <p class="hint" id="nameHint" hidden>Set your name in Setup so every scan shows who did it.</p>
+  <div class="stats">
+    <div class="stat"><b id="stPending">0</b><span>Pending</span></div>
+    <div class="stat"><b id="stDisp">0</b><span>Dispatched today</span></div>
+    <div class="stat"><b id="stRet">0</b><span>Returned today</span></div>
+  </div>
+  <h2>Recent scans on this phone</h2>
+  <ul class="list" id="recent"></ul>
+</main>
+
+<!-- ============ ORDERS ============ -->
+<main class="wrap" data-view="orders" hidden>
+  <div class="topbar"><div><p class="eyebrow">All parcels</p><h1>Orders</h1></div><button class="btn sm" id="refreshBtn" type="button">Refresh</button></div>
+  <div class="row2">
+    <label class="btn primary" style="cursor:pointer">Import labels or Excel
+      <input class="sr" id="impInput" type="file" accept=".pdf,.xlsx,.xls,.csv,application/pdf,text/csv" multiple>
+    </label>
+  </div>
+  <p class="hint">Import the Meesho label PDF (one label per page) or an .xlsx / .csv with an AWB column. Parcels already in the system are skipped.</p>
+  <input id="q" type="search" placeholder="Search AWB, name, order no, SKU" aria-label="Search orders">
+  <div class="tabs" id="stTabs"></div>
+  <select id="courierSel" aria-label="Courier"></select>
+  <p class="hint" id="count"></p>
+  <ul class="list" id="olist"></ul>
+  <button class="btn" id="moreBtn" type="button" hidden>Show more</button>
+</main>
+
+<!-- ============ REPORTS ============ -->
+<main class="wrap" data-view="reports" hidden>
+  <div class="topbar"><div><p class="eyebrow">Daily summary</p><h1>Reports</h1></div></div>
+  <label class="f">Date <input type="date" id="repDate"></label>
+  <div class="stats" id="repCards"></div>
+  <div class="card"><h2>By courier</h2><div class="tblwrap" id="repCourier"></div></div>
+  <div class="card"><h2>By staff on this date</h2><div class="tblwrap" id="repStaff"></div></div>
+  <div class="card"><h2>Return reasons on this date</h2><div class="bars" id="repReasons"></div></div>
+  <div class="card"><h2>Scan log</h2><ul class="list" id="repLog"></ul></div>
+  <div class="row2">
+    <button class="btn primary" id="xlsBtn" type="button">Download Excel</button>
+    <a class="btn" id="sheetLink" href="#" target="_blank" rel="noopener" hidden>Open Google Sheet</a>
+  </div>
+</main>
+
+<!-- ============ SETUP ============ -->
+<main class="wrap" data-view="setup" hidden>
+  <div class="topbar"><div><p class="eyebrow">Connection</p><h1>Setup</h1></div></div>
+  <div class="card">
+    <h2 id="modeTitle">Practice mode</h2>
+    <p class="hint" id="modeNote"></p>
+    <label class="f">Your name (saved with every scan)<input type="text" id="cfgName" placeholder="e.g. Ravi" autocomplete="name"></label>
+    <label class="f">Web app URL (Google Apps Script)<input type="url" id="cfgUrl" placeholder="https://script.google.com/macros/s/.../exec" inputmode="url" autocapitalize="none" autocorrect="off" spellcheck="false"></label>
+    <label class="f">Access key<input type="password" id="cfgKey" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false"></label>
+    <div class="row2">
+      <button class="btn primary" id="saveCfg" type="button">Save and test</button>
+      <button class="btn" id="useLocal" type="button">Use practice mode</button>
+    </div>
+    <p class="hint" id="cfgMsg"></p>
+  </div>
+  <div class="card">
+    <h2>Practice data</h2>
+    <p class="hint">Practice mode keeps six sample parcels from your label PDF on this phone only, so you can test the camera before connecting the sheet.</p>
+    <button class="btn danger" id="resetLocal" type="button">Reset practice data</button>
+  </div>
+</main>
+
+<nav class="bottom" aria-label="Sections">
+  <button class="navb" data-go="scan" aria-current="page"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8V5h3M17 5h3v3M20 16v3h-3M7 19H4v-3M7 12h10"/></svg>Scan</button>
+  <button class="navb" data-go="orders"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 6h14M5 12h14M5 18h9"/></svg>Orders</button>
+  <button class="navb" data-go="reports"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 20V10M12 20V4M19 20v-7"/></svg>Reports</button>
+  <button class="navb" data-go="setup"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1"/></svg>Setup</button>
+</nav>
+
+<dialog id="dlg"><div class="dlg" id="dlgBody"></div></dialog>
+<div class="toast" id="toast" hidden></div>
+
+<script>
+/* PURE:start  (no DOM, no network; unit-tested in node) */
+var COURIERS = ["Valmo", "Shadowfax", "Delhivery", "Ecom Express", "Xpress Bees", "XpressBees", "Ekart", "Blue Dart", "Bluedart", "DTDC", "Shiprocket", "India Post", "Amazon"];
+
+function norm(s) { return String(s == null ? "" : s).replace(/\s+/g, "").toUpperCase(); }
+function money(n) { var v = Number(n); return n === "" || n == null || !isFinite(v) ? "" : "₹" + v.toFixed(2); }
+
+/* "05.10.2026" -> "2026-10-05" */
+function isoDate(s) {
+  var m = String(s || "").match(/(\d{1,2})[.\/-](\d{1,2})[.\/-](\d{4})/);
+  return m ? m[3] + "-" + ("0" + m[2]).slice(-2) + "-" + ("0" + m[1]).slice(-2) : "";
+}
+
+/* Parse the text of ONE Meesho shipping-label page (text from pdf.js, one string per page). */
+function parseLabel(text) {
+  var lines = String(text || "").replace(/\r/g, "").split("\n").map(function (s) { return s.replace(/\s+/g, " ").trim(); }).filter(Boolean);
+  if (!lines.some(function (l) { return /^TAX INVOICE/i.test(l) || /^Customer Address$/i.test(l); })) return null;
+  var o = { awb: "", courier: "", orderNo: "", invoice: "", customer: "", state: "", pin: "", sku: "", size: "", qty: 1, product: "", pay: "", amount: "", orderDate: "" };
+  var idx = function (re, from) { for (var i = from || 0; i < lines.length; i++) if (re.test(lines[i])) return i; return -1; };
+
+  var ci = idx(/^Customer Address$/i), ui = idx(/^If undelivered/i), pd = idx(/^Product Details$/i);
+  if (ci >= 0) {
+    o.customer = lines[ci + 1] || "";
+    var block = lines.slice(ci + 1, ui > ci ? ui : ci + 7).join(" ");
+    var pins = block.match(/\b\d{6}\b/g);
+    o.pin = pins ? pins[pins.length - 1] : "";
+  }
+  var head = lines.slice(0, pd > 0 ? pd : lines.length);
+  var pay = head.filter(function (l) { return /payable amount on the app|do not collect cash/i.test(l); })[0] || "";
+  o.pay = /^COD/i.test(pay) ? "COD" : /^Prepaid/i.test(pay) ? "Prepaid" : pay ? "Check app" : "";
+
+  var headText = head.join(" \n ");
+  for (var c = 0; c < COURIERS.length; c++) { if (new RegExp("\\b" + COURIERS[c] + "\\b", "i").test(headText)) { o.courier = COURIERS[c]; break; } }
+
+  var after = ui > 0 ? head.slice(ui) : head;
+  var cands = after.filter(function (l) { return /^[A-Z]{2,4}\d{8,}[A-Z0-9]*$/.test(l) || /^\d{12,16}$/.test(l); });
+  o.awb = cands.length ? cands[cands.length - 1] : "";
+
+  var si = idx(/^SKU Size Qty Color Order No/i);
+  if (si >= 0 && lines[si + 1]) {
+    var tk = lines[si + 1].split(" ");
+    var last = tk[tk.length - 1];
+    if (/^\d{10,}_\d+$/.test(last)) { o.orderNo = last; tk.pop(); }
+    if (tk.length) tk.pop();                         /* colour */
+    var q = tk.length ? tk[tk.length - 1] : "";
+    if (/^\d+$/.test(q)) { o.qty = parseInt(q, 10); tk.pop(); }
+    if (tk.length >= 3 && /^free$/i.test(tk[tk.length - 2]) && /^size$/i.test(tk[tk.length - 1])) { o.size = "Free Size"; tk.length -= 2; }
+    else if (tk.length >= 2) { o.size = tk.pop(); }
+    o.sku = tk.join(" ");
+  }
+  var pi = idx(/^Purchase Order No/i);
+  if (pi >= 0 && !o.orderNo && /^\d{10,}$/.test(lines[pi + 1] || "")) o.orderNo = lines[pi + 1] + "_1";
+  var ii = idx(/^Invoice No\.?$/i);
+  if (ii >= 0) o.invoice = lines[ii + 1] || "";
+  var di = idx(/^Order Date$/i);
+  if (di >= 0) o.orderDate = isoDate(lines[di + 1]);
+
+  var ps = lines.join(" ").match(/Place of Supply:\s*([A-Za-z &]+?)\s+Sold by/i);
+  o.state = ps ? ps[1].trim() : "";
+
+  var hi = idx(/^Description HSN Qty/i);
+  if (hi >= 0) {
+    var desc = [];
+    for (var k = hi + 1; k < lines.length && !/^\d{6}\b/.test(lines[k]); k++) desc.push(lines[k]);
+    o.product = desc.join(" ").replace(/\s*-\s*Free Size$/i, "").trim();
+  }
+  for (var t = lines.length - 1; t >= 0; t--) {
+    var m = lines[t].match(/^Total\s+Rs\.?\s*([\d,]+\.?\d*)\s+Rs\.?\s*([\d,]+\.?\d*)$/i);
+    if (m) { o.amount = parseFloat(m[2].replace(/,/g, "")); break; }
+  }
+  return o.awb || o.orderNo ? o : null;
+}
+
+/* Map one spreadsheet row (any header names) to an order. Returns null when there is no AWB. */
+var ALIASES = {
+  awb: ["awb", "awbno", "awbnumber", "tracking", "trackingid", "trackingno", "waybill", "waybillno", "barcode"],
+  courier: ["courier", "carrier", "shippingpartner", "partner"],
+  customer: ["customer", "customername", "name", "buyer"],
+  state: ["state"], pin: ["pincode", "pin", "zip", "postalcode"],
+  sku: ["sku", "skuid"], size: ["size"], qty: ["qty", "quantity"],
+  product: ["product", "productname", "description", "item"],
+  orderNo: ["orderno", "ordernumber", "orderid", "suborderno", "purchaseorderno"],
+  invoice: ["invoice", "invoiceno", "invoicenumber"],
+  pay: ["payment", "paymenttype", "paymentmode", "cod"],
+  amount: ["amount", "total", "payable", "invoiceamount", "price"],
+  orderDate: ["orderdate", "date"]
+};
+function mapRow(r) {
+  var o = { awb: "", courier: "", orderNo: "", invoice: "", customer: "", state: "", pin: "", sku: "", size: "", qty: 1, product: "", pay: "", amount: "", orderDate: "" };
+  Object.keys(r).forEach(function (h) {
+    var hn = String(h).toLowerCase().replace(/[^a-z0-9]/g, "");
+    Object.keys(ALIASES).forEach(function (f) {
+      if (ALIASES[f].indexOf(hn) !== -1 && (o[f] === "" || o[f] === 1) && r[h] !== "") o[f] = typeof r[h] === "string" ? r[h].trim() : r[h];
+    });
+  });
+  if (o.amount !== "") { var a = parseFloat(String(o.amount).replace(/[^0-9.\-]/g, "")); o.amount = isFinite(a) ? a : ""; }
+  if (o.qty !== 1) { var q = parseInt(o.qty, 10); o.qty = isFinite(q) ? q : 1; }
+  o.awb = String(o.awb).trim();
+  return o.awb ? o : null;
+}
+
+/* Find an order: exact AWB, then order number, then a longer scanned string that contains an AWB. */
+function findIn(orders, code) {
+  var c = norm(code), i, o;
+  if (!c) return null;
+  for (i = 0; i < orders.length; i++) if (norm(orders[i].awb) === c) return orders[i];
+  for (i = 0; i < orders.length; i++) {
+    o = orders[i];
+    var on = norm(o.orderNo), base = on.replace(/_\d+$/, "");
+    if (on && (c === on || c === base)) return o;
+  }
+  for (i = 0; i < orders.length; i++) { o = orders[i]; if (norm(o.awb).length >= 8 && c.indexOf(norm(o.awb)) !== -1) return o; }
+  return null;
+}
+
+/* The scan rules shared by the local backend; Code.gs repeats them on the server.
+   Returns {result, order} where result is ok | duplicate | already_returned | unknown | not_dispatched. */
+function applyScan(orders, req, nowStr) {
+  var o = findIn(orders, req.awb);
+  if (!o) return { result: "unknown", order: null };
+  var st = o.status || "Pending";
+  if (req.mode === "DISPATCH") {
+    if (st === "Dispatched") return { result: "duplicate", order: o };
+    if (st === "Returned") return { result: "already_returned", order: o };
+    o.status = "Dispatched"; o.dispatchedAt = nowStr; o.dispatchedBy = req.by || "";
+    return { result: "ok", order: o };
+  }
+  if (st === "Returned") return { result: "duplicate", order: o };
+  var was = st;
+  o.status = "Returned"; o.returnedAt = nowStr; o.returnedBy = req.by || ""; o.returnReason = req.reason || "";
+  return { result: was === "Pending" ? "not_dispatched" : "ok", order: o };
+}
+/* PURE:end */
+if (typeof module !== "undefined") module.exports = { parseLabel: parseLabel, mapRow: mapRow, findIn: findIn, applyScan: applyScan, norm: norm, isoDate: isoDate };
+
+</script>
+<script>
+(function () {
+  "use strict";
+  var $ = function (id) { return document.getElementById(id); };
+  function esc(s) { return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]; }); }
+  function pad(n) { return (n < 10 ? "0" : "") + n; }
+  function nowStr() { var d = new Date(); return d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate()) + " " + pad(d.getHours()) + ":" + pad(d.getMinutes()) + ":" + pad(d.getSeconds()); }
+  function today() { return nowStr().slice(0, 10); }
+  function clock(s) { var m = String(s || "").match(/(\d{2}):(\d{2})/); if (!m) return ""; var h = +m[1]; return (h % 12 || 12) + ":" + m[2] + (h < 12 ? " am" : " pm"); }
+  function get(k, d) { try { var r = localStorage.getItem(k); return r ? JSON.parse(r) : d; } catch (e) { return d; } }
+  function put(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
+
+  var SAMPLE_PAGES = [{"awb": "VL0085637439858", "courier": "Valmo", "orderNo": "SAMPLE-ORDER-1", "invoice": "", "customer": "Sample customer 1", "state": "Sample state", "pin": "", "sku": "1261510164_9", "size": "Free Size", "qty": 1, "product": "Dish Wash Liquid 1L + 1L | Bartan Dhone Ka Liquid | Grease Remover Combo Pack", "pay": "Check app", "amount": 184.26, "orderDate": ""}, {"awb": "VL0085637439860", "courier": "Valmo", "orderNo": "SAMPLE-ORDER-2", "invoice": "", "customer": "Sample customer 2", "state": "Sample state", "pin": "", "sku": "733452944_53", "size": "Free Size", "qty": 1, "product": "Dishwashing Liquid Combo 1L + 1L | Bartan Dhone Ka Liquid | Oil & Grease Remover", "pay": "Check app", "amount": 176.26, "orderDate": ""}, {"awb": "VL0085637439859", "courier": "Valmo", "orderNo": "SAMPLE-ORDER-3", "invoice": "", "customer": "Sample customer 3", "state": "Sample state", "pin": "", "sku": "DW COMBO NEW- 141", "size": "Free Size", "qty": 1, "product": "Dishwash Liquid, Removes Foul Smell, Refreshing Lemon Fragrance, Utensil Wash 1L+ 1L", "pay": "COD", "amount": 154.94, "orderDate": ""}, {"awb": "VL0085637439861", "courier": "Valmo", "orderNo": "SAMPLE-ORDER-4", "invoice": "", "customer": "Sample customer 4", "state": "Sample state", "pin": "", "sku": "DW SINGLE_204", "size": "Free Size", "qty": 1, "product": "Bartan Dhone Ka Gel, Liquid Dishwash for Utensils, Lemon Fresh, 1L", "pay": "Prepaid", "amount": 101.94, "orderDate": ""}, {"awb": "SF4202053676FPL", "courier": "Shadowfax", "orderNo": "SAMPLE-ORDER-5", "invoice": "", "customer": "Sample customer 5", "state": "Sample state", "pin": "", "sku": "DW SINGAL NEW - 105", "size": "Free Size", "qty": 1, "product": "DeltaPlus Utensil Cleaner Liquid 1L | Jasmin Fresh Gel Formula | Leaves Zero Odour & Maximum Shine", "pay": "COD", "amount": 181, "orderDate": ""}, {"awb": "SF4201497833FPL", "courier": "Shadowfax", "orderNo": "SAMPLE-ORDER-6", "invoice": "", "customer": "Sample customer 6", "state": "Sample state", "pin": "", "sku": "DW SINGAL NEW - 105", "size": "Free Size", "qty": 1, "product": "DeltaPlus Utensil Cleaner Liquid 1L | Jasmin Fresh Gel Formula | Leaves Zero Odour & Maximum Shine", "pay": "COD", "amount": 209, "orderDate": ""}];
+
+  /* ---------------- state ---------------- */
+  var cfg = get("oms:cfg", { url: "", key: "", name: "" });
+  var S = { orders: [], queue: get("oms:queue", []), recent: get("oms:recent", []), log: get("oms:log", []), mode: "DISPATCH", reason: "Customer return", net: "off", lastResultId: 0 };
+  var idx = new Map();
+  function remote() { return !!(cfg.url && cfg.key); }
+  function ordersKey() { return remote() ? "oms:orders-remote" : "oms:orders-local"; }
+
+  function seedLocal() {
+    var seeded = SAMPLE_PAGES.map(function (o) { var c = Object.assign({}, o); c.status = "Pending"; c.dispatchedAt = c.dispatchedBy = c.returnedAt = c.returnedBy = c.returnReason = ""; return c; });
+    return seeded;
+  }
+  function loadOrders() {
+    var saved = get(ordersKey(), null);
+    S.orders = saved || (remote() ? [] : seedLocal());
+    reindex();
+  }
+  function saveOrders() { put(ordersKey(), S.orders); }
+  function reindex() { idx = new Map(); S.orders.forEach(function (o) { idx.set(norm(o.awb), o); }); }
+  function findOrder(code) { return idx.get(norm(code)) || findIn(S.orders, code); }
+  function mergeOrder(so) {
+    if (!so) return null;
+    var lo = idx.get(norm(so.awb));
+    if (lo) { Object.keys(so).forEach(function (k) { if (k !== "row") lo[k] = so[k]; }); return lo; }
+    S.orders.push(so); idx.set(norm(so.awb), so); return so;
+  }
+
+  /* ---------------- backend ---------------- */
+  function api(action, payload) {
+    var body = Object.assign({ key: cfg.key, action: action }, payload || {});
+    return fetch(cfg.url, { method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify(body), redirect: "follow" })
+      .then(function (r) { return r.json(); });
+  }
+  function errText(code) {
+    return { wrong_key: "The access key is wrong. Copy it again from the Setup tab of your Google Sheet.", not_setup: "The sheet is not set up yet. Run setup in Apps Script first.", unknown_action: "The sheet script is out of date. Redeploy it as a new version." }[code] || ("Server said: " + code);
+  }
+
+  /* ---------------- ui helpers ---------------- */
+  var toastT = null;
+  function toast(msg) { var t = $("toast"); t.textContent = msg; t.hidden = false; clearTimeout(toastT); toastT = setTimeout(function () { t.hidden = true; }, 3200); }
+  var actx = null;
+  function feedback(kind) {
+    try {
+      actx = actx || new (window.AudioContext || window.webkitAudioContext)();
+      var o = actx.createOscillator(), g = actx.createGain();
+      o.type = "sine"; o.frequency.value = kind === "ok" ? 880 : kind === "warn" ? 520 : 220;
+      g.gain.value = 0.12; o.connect(g); g.connect(actx.destination);
+      o.start(); o.stop(actx.currentTime + (kind === "ok" ? 0.1 : 0.28));
+    } catch (e) {}
+    try { if (navigator.vibrate) navigator.vibrate(kind === "ok" ? 40 : [80, 50, 80]); } catch (e) {}
+  }
+  function setNet() {
+    var c = $("net");
+    if (!remote()) { c.dataset.s = "off"; c.textContent = "Practice mode"; return; }
+    if (S.queue.length) { c.dataset.s = "wait"; c.textContent = S.queue.length + " waiting to sync"; }
+    else if (S.net === "bad") { c.dataset.s = "wait"; c.textContent = "Offline"; }
+    else { c.dataset.s = "ok"; c.textContent = "Synced"; }
+  }
+  function view(name) {
+    document.querySelectorAll("[data-view]").forEach(function (m) { m.hidden = m.getAttribute("data-view") !== name; });
+    document.querySelectorAll(".navb").forEach(function (b) { b.setAttribute("aria-current", b.getAttribute("data-go") === name ? "page" : "false"); });
+    if (name !== "scan") camStop(); else if (get("oms:camAuto", false)) camStart();
+    if (name === "orders") renderOrders(true);
+    if (name === "reports") renderReports();
+    if (name === "setup") renderSetup();
+    window.scrollTo(0, 0);
+  }
+
+  /* ---------------- scan core ---------------- */
+  function verb(mode, done) { return mode === "RETURN" ? (done ? "RETURNED" : "return") : (done ? "DISPATCHED" : "dispatch"); }
+  function line(o) {
+    return [o.courier, o.state, o.pay, o.amount !== "" && o.amount != null ? money(o.amount) : ""].filter(Boolean).join(" · ");
+  }
+  function showResult(kind, head, awb, body, canUndo) {
+    var r = $("result"); S.lastResultId++;
+    r.dataset.kind = kind;
+    r.innerHTML = '<div class="r-head">' + esc(head) + '</div>' + (awb ? '<div class="r-awb">' + esc(awb) + '</div>' : "") + '<div class="r-body">' + body + "</div>" +
+      (canUndo ? '<button class="btn sm" type="button" id="undoBtn" data-awb="' + esc(canUndo) + '">Undo this scan</button>' : "");
+    return S.lastResultId;
+  }
+  function pushRecent(e) { S.recent.unshift(e); S.recent = S.recent.slice(0, 40); put("oms:recent", S.recent); }
+  function logLocal(awb, mode, resultLabel, o, note) {
+    if (remote()) return;
+    S.log.unshift({ time: nowStr(), date: today(), awb: awb, mode: mode, result: resultLabel, by: cfg.name || "Staff", customer: o ? o.customer : "", courier: o ? o.courier : "", amount: o ? o.amount : "", note: note || "" });
+    S.log = S.log.slice(0, 2000); put("oms:log", S.log);
+  }
+  var LABEL = { ok: "OK", duplicate: "Duplicate", already_returned: "Already returned", not_dispatched: "Returned (was not dispatched)", unknown: "Not in orders" };
+
+  /* processScan: the one path every scan takes (camera, typed, scanner, buttons on an order) */
+  function processScan(raw, mode, reason, quiet) {
+    var code = String(raw || "").trim();
+    if (!code) return;
+    var by = cfg.name || "Staff";
+    var order = findOrder(code);
+    if (!order) {
+      var id0 = showResult("bad", "NOT IN ORDERS", code, remote() ? "Not in this phone’s list. Checking the sheet…" : "This AWB is not in your order list. Import the label first.");
+      feedback("bad");
+      pushRecent({ id: id0, time: nowStr(), awb: code, mode: mode, result: "unknown", customer: "", by: by });
+      if (remote()) enqueue({ awb: code, mode: mode, reason: reason, by: by, ts: Date.now(), rid: id0 });
+      else logLocal(code, mode, LABEL.unknown, null, "");
+      renderScanBits();
+      return;
+    }
+    var res = applyScan([order], { awb: order.awb, mode: mode, by: by, reason: reason }, nowStr());
+    var r = res.result, who = mode === "RETURN" ? order.returnedBy : order.dispatchedBy, when = mode === "RETURN" ? order.returnedAt : order.dispatchedAt;
+    var kind = r === "ok" ? "ok" : "warn", head, body = esc(order.customer || "") + "<br>" + esc(line(order)) + (order.sku ? "<br>SKU " + esc(order.sku) : "");
+    if (r === "ok") head = verb(mode, true);
+    else if (r === "not_dispatched") head = "RETURNED (never dispatched)";
+    else if (r === "duplicate") { head = "ALREADY " + verb(mode, true); body += "<br><b>By " + esc(who || "unknown") + " at " + esc(clock(when)) + "</b>"; }
+    else { head = "ALREADY RETURNED"; body += "<br><b>Returned by " + esc(order.returnedBy || "unknown") + " at " + esc(clock(order.returnedAt)) + ". Not dispatched.</b>"; }
+    var rid = showResult(kind, head, order.awb, body, (r === "ok" || r === "not_dispatched") ? order.awb : "");
+    feedback(kind);
+    pushRecent({ id: rid, time: nowStr(), awb: order.awb, mode: mode, result: r, customer: order.customer, by: by });
+    if (r === "ok" || r === "not_dispatched") {
+      saveOrders();
+      if (remote()) enqueue({ awb: order.awb, mode: mode, reason: reason, by: by, ts: Date.now(), rid: rid });
+      else logLocal(order.awb, mode, LABEL[r], order, mode === "RETURN" ? reason : "");
+    }
+    renderScanBits();
+    if (quiet) toast(head + ": " + order.customer);
+  }
+
+  function enqueue(item) { item.id = Date.now() + "-" + Math.random().toString(36).slice(2, 6); S.queue.push(item); put("oms:queue", S.queue); setNet(); flush(); }
+  var flushing = false, retryT = null;
+  async function flush() {
+    if (flushing || !remote()) return;
+    flushing = true;
+    try {
+      while (S.queue.length) {
+        var it = S.queue[0], r;
+        try { r = await api("scan", it); } catch (e) { S.net = "bad"; break; }
+        if (!r.ok) { S.net = "bad"; toast(errText(r.error)); break; }
+        S.net = "ok"; S.queue.shift(); put("oms:queue", S.queue);
+        reconcile(it, r);
+      }
+    } finally {
+      flushing = false; setNet(); saveOrders();
+      clearTimeout(retryT);
+      if (S.queue.length) retryT = setTimeout(flush, 8000);
+    }
+  }
+  function reconcile(it, r) {
+    var shown = it.rid === S.lastResultId;
+    if (r.order) mergeOrder(r.order);
+    var rec = S.recent.filter(function (x) { return x.id === it.rid; })[0];
+    if (r.result === "unknown" && rec) { rec.result = "unknown"; }
+    if (r.result === "duplicate" && r.order) {
+      var who = it.mode === "RETURN" ? r.order.returnedBy : r.order.dispatchedBy, when = it.mode === "RETURN" ? r.order.returnedAt : r.order.dispatchedAt;
+      if (rec) rec.result = "duplicate";
+      if (shown) showResult("warn", "ALREADY " + verb(it.mode, true), r.order.awb, esc(r.order.customer || "") + "<br><b>Another phone got there first: " + esc(who || "unknown") + " at " + esc(clock(when)) + "</b>");
+      else toast("Another phone had already scanned " + r.order.awb);
+      feedback("warn");
+    } else if (r.result === "unknown" && shown) {
+      showResult("bad", "NOT IN ORDERS", it.awb, "Checked the sheet. This AWB is not in your orders. Import the label first.");
+    } else if (r.order && shown && rec && rec.result === "unknown") {
+      rec.result = r.result; rec.customer = r.order.customer;
+      showResult(r.result === "ok" ? "ok" : "warn", r.result === "ok" ? verb(it.mode, true) : "CHECK", r.order.awb, esc(r.order.customer || "") + "<br>" + esc(line(r.order)));
+    }
+    put("oms:recent", S.recent);
+    renderScanBits();
+  }
+  async function undoScan(awb) {
+    var o = findOrder(awb); if (!o) return;
+    var by = cfg.name || "Staff";
+    if (remote()) {
+      await flush();
+      try {
+        var r = await api("scan.undo", { awb: awb, by: by });
+        if (!r.ok) { toast(errText(r.error)); return; }
+        mergeOrder(r.order);
+      } catch (e) { toast("No connection. Try the undo again when online."); return; }
+    } else {
+      if (o.status === "Returned") { o.status = o.dispatchedAt ? "Dispatched" : "Pending"; o.returnedAt = o.returnedBy = o.returnReason = ""; }
+      else if (o.status === "Dispatched") { o.status = "Pending"; o.dispatchedAt = o.dispatchedBy = ""; }
+      logLocal(awb, "UNDO", "Undo", o, "");
+    }
+    saveOrders();
+    showResult("idle", "Scan undone", awb, esc(o.customer || "") + " is now " + esc(o.status) + ".");
+    toast("Scan undone");
+    renderScanBits(); renderOrders(false);
+  }
+
+  /* ---------------- camera ---------------- */
+  var Cam = { stream: null, track: null, timer: null, det: null, reader: null, canvas: null, n: 0, lastCode: "", lastAt: 0, torch: false, wake: null, busy: false };
+  var CROPS = [[0.3, 0.4], [0, 1], [0.2, 0.6], [0.4, 0.2]];
+  function camMsg(t, sub) { $("camMsg").hidden = false; $("camMsg").innerHTML = "<strong>" + esc(t) + "</strong>" + (sub ? "<span>" + esc(sub) + "</span>" : ""); }
+  async function camStart() {
+    if (Cam.stream) return;
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { camMsg("Camera needs a secure address", "Open this app from its https:// link, not from a file or an http:// address."); return; }
+    camMsg("Starting camera…");
+    try {
+      Cam.stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: "environment" }, width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: false });
+    } catch (e) {
+      Cam.stream = null;
+      var denied = e && (e.name === "NotAllowedError" || e.name === "SecurityError");
+      camMsg(denied ? "Camera is blocked" : "Camera could not start", denied ? "Allow the camera for this site in your browser settings, then tap Start camera." : (e && e.message) || "");
+      return;
+    }
+    var v = $("video"); v.srcObject = Cam.stream;
+    try { await v.play(); } catch (e) {}
+    Cam.track = Cam.stream.getVideoTracks()[0];
+    var caps = {}; try { caps = Cam.track.getCapabilities ? Cam.track.getCapabilities() : {}; } catch (e) {}
+    try { if (caps.focusMode && caps.focusMode.indexOf("continuous") !== -1) await Cam.track.applyConstraints({ advanced: [{ focusMode: "continuous" }] }); } catch (e) {}
+    $("torchBtn").hidden = !caps.torch;
+    var z = $("zoom");
+    if (caps.zoom) { z.min = caps.zoom.min; z.max = Math.min(caps.zoom.max, 6); z.step = caps.zoom.step || 0.1; z.value = caps.zoom.min; z.hidden = false; } else z.hidden = true;
+    try { if (navigator.wakeLock) Cam.wake = await navigator.wakeLock.request("screen"); } catch (e) {}
+    try { actx = actx || new (window.AudioContext || window.webkitAudioContext)(); if (actx.state === "suspended") actx.resume(); } catch (e) {}
+    if ("BarcodeDetector" in window) { try { Cam.det = new window.BarcodeDetector({ formats: ["code_128", "code_39"] }); } catch (e) { Cam.det = null; } }
+    if (!Cam.det && window.ZXing) {
+      var Z = window.ZXing, h = new Map();
+      h.set(Z.DecodeHintType.POSSIBLE_FORMATS, [Z.BarcodeFormat.CODE_128, Z.BarcodeFormat.CODE_39]);
+      h.set(Z.DecodeHintType.TRY_HARDER, true);
+      Cam.reader = new Z.MultiFormatReader(); Cam.reader.setHints(h);
+      Cam.canvas = document.createElement("canvas");
+    }
+    $("camMsg").hidden = true; $("reticle").hidden = false;
+    $("camBtn").textContent = "Stop camera";
+    put("oms:camAuto", true);
+    Cam.timer = setInterval(camTick, Cam.det ? 140 : 220);
+  }
+  function camStop() {
+    clearInterval(Cam.timer); Cam.timer = null;
+    if (Cam.stream) Cam.stream.getTracks().forEach(function (t) { t.stop(); });
+    Cam.stream = null; Cam.track = null; Cam.torch = false;
+    try { if (Cam.wake) Cam.wake.release(); } catch (e) {} Cam.wake = null;
+    $("video").srcObject = null; $("reticle").hidden = true; $("torchBtn").hidden = true; $("zoom").hidden = true;
+    $("camBtn").textContent = "Start camera";
+    camMsg("Camera is off", "Tap Start camera, then hold the long barcode inside the box.");
+  }
+  async function camTick() {
+    var v = $("video");
+    if (Cam.busy || !Cam.stream || v.readyState < 2 || !v.videoWidth) return;
+    Cam.busy = true;
+    try {
+      var found = [];
+      if (Cam.det) {
+        var r = await Cam.det.detect(v);
+        r.forEach(function (b) { if (b.rawValue) found.push(b.rawValue); });
+      } else if (Cam.reader) {
+        var c = CROPS[Cam.n++ % CROPS.length], vw = v.videoWidth, vh = v.videoHeight;
+        var sw = vw, sh = Math.floor(vh * c[1]), sy = Math.floor(vh * c[0]);
+        var sc = Math.min(1, 1280 / sw), cv = Cam.canvas;
+        cv.width = Math.round(sw * sc); cv.height = Math.max(1, Math.round(sh * sc));
+        cv.getContext("2d", { willReadFrequently: true }).drawImage(v, 0, sy, sw, sh, 0, 0, cv.width, cv.height);
+        try {
+          var bmp = new ZXing.BinaryBitmap(new ZXing.HybridBinarizer(new ZXing.HTMLCanvasElementLuminanceSource(cv)));
+          found.push(Cam.reader.decode(bmp).getText());
+        } catch (e) {}
+      }
+      for (var i = 0; i < found.length; i++) onCamCode(found[i]);
+    } catch (e) {} finally { Cam.busy = false; }
+  }
+  function onCamCode(raw) {
+    var code = String(raw || "").trim();
+    if (!code || /^https?:/i.test(code)) return;
+    var n = norm(code), t = Date.now();
+    if (n === Cam.lastCode && t - Cam.lastAt < 3000) return;
+    var known = !!findOrder(code);
+    if (!known && !/^[A-Z]{2,4}\d{8,}[A-Z0-9]*$/i.test(n) && !/^\d{12,16}$/.test(n)) return;   /* ignore noise that does not look like an AWB */
+    Cam.lastCode = n; Cam.lastAt = t;
+    processScan(code, S.mode, S.mode === "RETURN" ? S.reason : "");
+  }
+
+  /* ---------------- import ---------------- */
+  async function readPdf(file) {
+    if (!window.pdfjsLib) throw new Error("PDF reader did not load. Check your internet and reload.");
+    window.pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+    var doc = await window.pdfjsLib.getDocument({ data: new Uint8Array(await file.arrayBuffer()) }).promise;
+    var out = [], missed = 0;
+    for (var p = 1; p <= doc.numPages; p++) {
+      var tc = await (await doc.getPage(p)).getTextContent(), t = "";
+      tc.items.forEach(function (it) { t += it.str + (it.hasEOL ? "\n" : " "); });
+      var o = parseLabel(t);
+      if (o && o.awb) out.push(o); else missed++;
+    }
+    return { orders: out, missed: missed };
+  }
+  async function readSheet(file) {
+    if (!window.XLSX) throw new Error("Excel reader did not load. Check your internet and reload.");
+    var wb = window.XLSX.read(await file.arrayBuffer(), { type: "array" });
+    var rows = window.XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: "" });
+    var out = [], missed = 0;
+    rows.forEach(function (r) { var o = mapRow(r); if (o) out.push(o); else missed++; });
+    return { orders: out, missed: missed };
+  }
+  async function onImport(files) {
+    var all = [], missed = 0, names = [];
+    for (var i = 0; i < files.length; i++) {
+      var f = files[i];
+      try {
+        var res = /\.pdf$/i.test(f.name) ? await readPdf(f) : await readSheet(f);
+        all = all.concat(res.orders); missed += res.missed; names.push(f.name);
+      } catch (e) { toast("Could not read " + f.name + ". " + (e && e.message ? e.message : "")); }
+    }
+    $("impInput").value = "";
+    if (!all.length) { openDlg('<h2>Nothing to import</h2><p class="hint">No AWB was found. For a label PDF use the original one-label-per-page file from Meesho. For Excel, add a header row with a column named AWB.</p><button class="btn" data-close>Close</button>'); return; }
+    var seen = new Set(), fresh = [], dup = 0;
+    all.forEach(function (o) { var k = norm(o.awb); if (seen.has(k) || idx.has(k)) { dup++; return; } seen.add(k); fresh.push(o); });
+    var rows = fresh.slice(0, 6).map(function (o) { return "<li class='item' style='cursor:default'><div><div class='awb'>" + esc(o.awb) + "</div><div class='who'>" + esc(o.customer) + "</div><div class='meta'>" + esc([o.courier, o.state, o.sku, o.pay, money(o.amount)].filter(Boolean).join(" · ")) + "</div></div></li>"; }).join("");
+    openDlg("<h2>Import preview</h2><p class='hint'>" + fresh.length + " new parcels" + (dup ? ", " + dup + " already in the system" : "") + (missed ? ", " + missed + " pages or rows without an AWB skipped" : "") + ".</p><ul class='list'>" + rows + (fresh.length > 6 ? "<li class='hint'>and " + (fresh.length - 6) + " more</li>" : "") + "</ul><div class='row2'><button class='btn primary' id='goImport' " + (fresh.length ? "" : "disabled") + ">Add " + fresh.length + " parcels</button><button class='btn' data-close>Cancel</button></div>");
+    $("goImport").onclick = async function () {
+      this.disabled = true; this.textContent = "Adding…";
+      try { await importNow(fresh); closeDlg(); toast(fresh.length + " parcels added"); }
+      catch (e) { toast("Import failed: " + (e && e.message ? e.message : "no connection")); closeDlg(); }
+    };
+  }
+  async function importNow(list) {
+    if (!remote()) {
+      list.forEach(function (o) { var c = Object.assign({ status: "Pending", dispatchedAt: "", dispatchedBy: "", returnedAt: "", returnedBy: "", returnReason: "" }, o); S.orders.push(c); });
+      reindex(); saveOrders(); renderOrders(true); renderScanBits(); return;
+    }
+    for (var i = 0; i < list.length; i += 150) {
+      var r = await api("orders.import", { orders: list.slice(i, i + 150) });
+      if (!r.ok) throw new Error(errText(r.error));
+    }
+    await refreshOrders(true);
+  }
+  async function refreshOrders(force) {
+    if (!remote()) { renderOrders(true); renderScanBits(); return; }
+    await flush();
+    if (S.queue.length && !force) return;
+    try {
+      var r = await api("orders.list");
+      if (!r.ok) { S.net = "bad"; setNet(); toast(errText(r.error)); return; }
+      S.orders = r.orders; reindex(); saveOrders(); S.net = "ok";
+    } catch (e) { S.net = "bad"; }
+    setNet(); renderOrders(true); renderScanBits();
+  }
+
+  /* ---------------- dialogs ---------------- */
+  function openDlg(html) { $("dlgBody").innerHTML = html; var d = $("dlg"); if (!d.open) { try { d.showModal(); } catch (e) { d.setAttribute("open", ""); } } }
+  function closeDlg() { var d = $("dlg"); try { d.close(); } catch (e) { d.removeAttribute("open"); } }
+  $("dlg").addEventListener("click", function (e) { if (e.target.closest("[data-close]") || e.target === $("dlg")) closeDlg(); });
+
+  function showOrder(awb) {
+    var o = findOrder(awb); if (!o) return;
+    var kv = [["AWB", o.awb], ["Status", o.status || "Pending"], ["Customer", o.customer], ["Courier", o.courier], ["State / PIN", [o.state, o.pin].filter(Boolean).join(" ")], ["SKU", [o.sku, o.size].filter(Boolean).join(" · ")], ["Product", o.product], ["Qty", o.qty], ["Payment", o.pay], ["Amount", money(o.amount)], ["Order no", o.orderNo], ["Invoice", o.invoice], ["Order date", o.orderDate]];
+    if (o.dispatchedAt) kv.push(["Dispatched", o.dispatchedAt + " by " + (o.dispatchedBy || "")]);
+    if (o.returnedAt) kv.push(["Returned", o.returnedAt + " by " + (o.returnedBy || "") + (o.returnReason ? " (" + o.returnReason + ")" : "")]);
+    openDlg("<h2>" + esc(o.customer || o.awb) + '</h2><dl class="kv">' + kv.filter(function (r) { return r[1] !== "" && r[1] != null; }).map(function (r) { return "<dt>" + esc(r[0]) + "</dt><dd>" + esc(r[1]) + "</dd>"; }).join("") + '</dl><div class="row2"><button class="btn primary" data-act="DISPATCH">Mark dispatched</button><button class="btn" data-act="RETURN">Mark returned</button></div><div class="row2"><button class="btn danger" data-act="UNDO">Undo last status</button><button class="btn" data-close>Close</button></div>');
+    $("dlgBody").onclick = function (e) {
+      var b = e.target.closest("[data-act]"); if (!b) return;
+      var a = b.getAttribute("data-act"); closeDlg();
+      if (a === "UNDO") undoScan(o.awb); else processScan(o.awb, a, a === "RETURN" ? S.reason : "", true);
+      setTimeout(function () { renderOrders(false); }, 50);
+    };
+  }
+
+  /* ---------------- render ---------------- */
+  function renderScanBits() {
+    var t = today(), p = 0, d = 0, r = 0;
+    S.orders.forEach(function (o) {
+      if ((o.status || "Pending") === "Pending") p++;
+      if (o.dispatchedAt && String(o.dispatchedAt).slice(0, 10) === t && o.status !== "Pending") d++;
+      if (o.returnedAt && String(o.returnedAt).slice(0, 10) === t && o.status === "Returned") r++;
+    });
+    $("stPending").textContent = p; $("stDisp").textContent = d; $("stRet").textContent = r;
+    $("nameHint").hidden = !!cfg.name;
+    $("recent").innerHTML = S.recent.length ? S.recent.slice(0, 8).map(function (x) {
+      var bad = x.result === "unknown" || x.result === "duplicate" || x.result === "already_returned";
+      var tag = x.result === "unknown" ? "Not in orders" : x.result === "duplicate" ? "Duplicate" : x.result === "already_returned" ? "Was returned" : x.mode === "RETURN" ? "Returned" : "Dispatched";
+      return "<li class='item' data-awb='" + esc(x.awb) + "'><div><div class='awb'>" + esc(x.awb) + "</div><div class='meta'>" + esc((x.customer ? x.customer + " · " : "") + clock(x.time)) + "</div></div><span class='pill " + (bad ? "bad" : x.mode === "RETURN" ? "Returned" : "Dispatched") + "'>" + tag + "</span></li>";
+    }).join("") : "<li class='empty'>Nothing scanned yet.</li>";
+    setNet();
+  }
+
+  var oState = { status: "All", courier: "All", limit: 60 };
+  function renderOrders(resetLimit) {
+    if (resetLimit) oState.limit = 60;
+    var q = norm($("q").value), couriers = {};
+    S.orders.forEach(function (o) { if (o.courier) couriers[o.courier] = 1; });
+    var cs = $("courierSel"), cur = oState.courier;
+    cs.innerHTML = '<option value="All">All couriers</option>' + Object.keys(couriers).sort().map(function (c) { return '<option value="' + esc(c) + '"' + (c === cur ? " selected" : "") + ">" + esc(c) + "</option>"; }).join("");
+    var base = S.orders.filter(function (o) { return (oState.courier === "All" || o.courier === oState.courier) && (!q || [o.awb, o.customer, o.orderNo, o.sku, o.invoice].some(function (v) { return norm(v).indexOf(q) !== -1; })); });
+    var cnt = { All: base.length, Pending: 0, Dispatched: 0, Returned: 0 };
+    base.forEach(function (o) { cnt[o.status || "Pending"]++; });
+    $("stTabs").innerHTML = ["All", "Pending", "Dispatched", "Returned"].map(function (s) { return '<button class="tab" type="button" data-st="' + s + '" aria-pressed="' + (oState.status === s) + '">' + s + " " + cnt[s] + "</button>"; }).join("");
+    var list = base.filter(function (o) { return oState.status === "All" || (o.status || "Pending") === oState.status; });
+    $("count").textContent = list.length + " parcels";
+    $("olist").innerHTML = list.slice(0, oState.limit).map(function (o) {
+      var st = o.status || "Pending";
+      return "<li class='item' data-awb='" + esc(o.awb) + "'><div><div class='awb'>" + esc(o.awb) + (o.pay ? "<span class='chip" + (/cod/i.test(o.pay) ? " cod" : "") + "'>" + esc(o.pay) + "</span>" : "") + "</div><div class='who'>" + esc(o.customer) + "</div><div class='meta'>" + esc([o.courier, o.state, o.sku, money(o.amount)].filter(Boolean).join(" · ")) + "</div></div><span class='pill " + st + "'>" + st + "</span></li>";
+    }).join("") || "<li class='empty'>No parcels match. Import labels to add parcels.</li>";
+    $("moreBtn").hidden = list.length <= oState.limit;
+  }
+
+  var repScans = [];
+  async function getScans() {
+    if (!remote()) return S.log.slice();
+    try { var r = await api("scans.list", { limit: 1500 }); if (r.ok) { repScans = r.scans; } } catch (e) {}
+    return repScans;
+  }
+  function tbl(head, rows) {
+    return "<table><thead><tr>" + head.map(function (h) { return "<th>" + esc(h) + "</th>"; }).join("") + "</tr></thead><tbody>" + (rows.length ? rows.map(function (r) { return "<tr>" + r.map(function (c) { return "<td>" + esc(c) + "</td>"; }).join("") + "</tr>"; }).join("") : "<tr><td colspan='" + head.length + "'>No data</td></tr>") + "</tbody></table>";
+  }
+  async function renderReports() {
+    var d = $("repDate").value || today(); $("repDate").value = d;
+    var sameDay = function (s) { return String(s || "").slice(0, 10) === d; };
+    var pend = 0, dis = 0, ret = 0, cod = 0, byC = {}, byS = {}, reasons = {};
+    S.orders.forEach(function (o) {
+      var st = o.status || "Pending", c = o.courier || "Other"; byC[c] = byC[c] || { n: 0, p: 0, d: 0, r: 0 }; byC[c].n++;
+      if (st === "Pending") { pend++; byC[c].p++; if (/cod/i.test(o.pay)) cod += Number(o.amount) || 0; }
+      if (st === "Dispatched") byC[c].d++; if (st === "Returned") byC[c].r++;
+      if (o.dispatchedAt && sameDay(o.dispatchedAt) && st !== "Pending") { dis++; var s1 = o.dispatchedBy || "Unknown"; byS[s1] = byS[s1] || { d: 0, r: 0 }; byS[s1].d++; }
+      if (st === "Returned" && sameDay(o.returnedAt)) { ret++; var s2 = o.returnedBy || "Unknown"; byS[s2] = byS[s2] || { d: 0, r: 0 }; byS[s2].r++; var rr = o.returnReason || "No reason"; reasons[rr] = (reasons[rr] || 0) + 1; }
+    });
+    $("repCards").innerHTML = [["Pending now", pend], ["Dispatched", dis], ["Returned", ret]].map(function (x) { return "<div class='stat'><b>" + x[1] + "</b><span>" + x[0] + "</span></div>"; }).join("") + "<div class='stat' style='grid-column:1/-1'><b>" + money(cod) + "</b><span>COD value still pending</span></div>";
+    $("repCourier").innerHTML = tbl(["Courier", "Orders", "Pending", "Dispatched", "Returned"], Object.keys(byC).sort().map(function (c) { return [c, byC[c].n, byC[c].p, byC[c].d, byC[c].r]; }));
+    $("repStaff").innerHTML = tbl(["Staff", "Dispatched", "Returned"], Object.keys(byS).sort().map(function (s) { return [s, byS[s].d, byS[s].r]; }));
+    var rk = Object.keys(reasons).sort(function (a, b) { return reasons[b] - reasons[a]; }), mx = rk.length ? reasons[rk[0]] : 1;
+    $("repReasons").innerHTML = rk.length ? rk.map(function (k) { return "<div class='bar'><span>" + esc(k) + "</span><i style='width:" + Math.max(4, Math.round(reasons[k] / mx * 100)) + "%'></i><b>" + reasons[k] + "</b></div>"; }).join("") : "<p class='hint'>No returns on this date.</p>";
+    var sc = await getScans();
+    var day = sc.filter(function (x) { return x.date === d; }).slice(0, 60);
+    $("repLog").innerHTML = day.length ? day.map(function (x) { var bad = /not in|duplicate|already/i.test(x.result); return "<li class='item' style='cursor:default'><div><div class='awb'>" + esc(x.awb) + "</div><div class='meta'>" + esc([x.customer, x.by, clock(x.time)].filter(Boolean).join(" · ")) + "</div></div><span class='pill " + (bad ? "bad" : x.mode === "RETURN" ? "Returned" : "Dispatched") + "'>" + esc(x.mode === "UNDO" ? "Undo" : x.result) + "</span></li>"; }).join("") : "<li class='empty'>No scans on this date.</li>";
+  }
+  async function exportXlsx() {
+    if (!window.XLSX) { toast("Excel library did not load. Check your internet and reload."); return; }
+    var X = window.XLSX, wb = X.utils.book_new(), d = today();
+    var cols = [["AWB", "awb"], ["Courier", "courier"], ["Order No", "orderNo"], ["Invoice No", "invoice"], ["Customer", "customer"], ["State", "state"], ["Pincode", "pin"], ["SKU", "sku"], ["Size", "size"], ["Qty", "qty"], ["Product", "product"], ["Payment", "pay"], ["Amount", "amount"], ["Order Date", "orderDate"], ["Status", "status"], ["Dispatched At", "dispatchedAt"], ["Dispatched By", "dispatchedBy"], ["Returned At", "returnedAt"], ["Returned By", "returnedBy"], ["Return Reason", "returnReason"]];
+    var cnt = { Pending: 0, Dispatched: 0, Returned: 0 }; S.orders.forEach(function (o) { cnt[o.status || "Pending"]++; });
+    var sum = X.utils.aoa_to_sheet([["Meesho Dispatch Desk", ""], ["Exported", nowStr()], ["Total orders", S.orders.length], ["Pending", cnt.Pending], ["Dispatched", cnt.Dispatched], ["Returned", cnt.Returned]]);
+    sum["!cols"] = [{ wch: 22 }, { wch: 22 }]; X.utils.book_append_sheet(wb, sum, "Summary");
+    var os = X.utils.aoa_to_sheet([cols.map(function (c) { return c[0]; })].concat(S.orders.map(function (o) { return cols.map(function (c) { return o[c[1]] == null ? "" : o[c[1]]; }); })));
+    os["!cols"] = cols.map(function () { return { wch: 16 }; }); X.utils.book_append_sheet(wb, os, "Orders");
+    var sc = await getScans();
+    var ss = X.utils.aoa_to_sheet([["Time", "AWB", "Mode", "Result", "By", "Customer", "Courier", "Amount", "Note"]].concat(sc.map(function (x) { return [x.time, x.awb, x.mode, x.result, x.by, x.customer, x.courier, x.amount, x.note]; })));
+    ss["!cols"] = [20, 18, 10, 22, 12, 20, 11, 9, 20].map(function (w) { return { wch: w }; }); X.utils.book_append_sheet(wb, ss, "Scans");
+    X.writeFile(wb, "meesho-dispatch-" + d + ".xlsx");
+  }
+
+  function renderSetup() {
+    $("cfgName").value = cfg.name || ""; $("cfgUrl").value = cfg.url || ""; $("cfgKey").value = cfg.key || "";
+    $("modeTitle").textContent = remote() ? "Connected to your Google Sheet" : "Practice mode";
+    $("modeNote").textContent = remote() ? "All phones that use the same URL and key share these orders and scans live. Scans made offline are sent when the connection returns." : "Data stays on this phone only. Paste your Web app URL and Access key below to share one sheet across all phones.";
+    $("resetLocal").hidden = remote();
+  }
+
+  /* ---------------- events ---------------- */
+  document.querySelectorAll(".navb").forEach(function (b) { b.addEventListener("click", function () { view(b.getAttribute("data-go")); }); });
+  document.querySelectorAll(".seg button").forEach(function (b) {
+    b.addEventListener("click", function () {
+      S.mode = b.getAttribute("data-m");
+      document.querySelectorAll(".seg button").forEach(function (x) { x.setAttribute("aria-pressed", x === b ? "true" : "false"); });
+      $("reasonWrap").hidden = S.mode !== "RETURN";
+    });
+  });
+  $("reason").addEventListener("change", function (e) { S.reason = e.target.value; });
+  $("camBtn").addEventListener("click", function () { if (Cam.stream) { put("oms:camAuto", false); camStop(); } else camStart(); });
+  $("torchBtn").addEventListener("click", async function () { try { Cam.torch = !Cam.torch; await Cam.track.applyConstraints({ advanced: [{ torch: Cam.torch }] }); } catch (e) { toast("Light is not available on this camera."); } });
+  $("zoom").addEventListener("input", async function (e) { try { await Cam.track.applyConstraints({ advanced: [{ zoom: Number(e.target.value) }] }); } catch (err) {} });
+  $("manualForm").addEventListener("submit", function (e) {
+    e.preventDefault();
+    var v = $("manual").value; $("manual").value = "";
+    processScan(v, S.mode, S.mode === "RETURN" ? S.reason : "");
+    $("manual").focus();
+  });
+  $("result").addEventListener("click", function (e) { var b = e.target.closest("#undoBtn"); if (b) undoScan(b.getAttribute("data-awb")); });
+  $("recent").addEventListener("click", function (e) { var li = e.target.closest("[data-awb]"); if (li) showOrder(li.getAttribute("data-awb")); });
+  $("olist").addEventListener("click", function (e) { var li = e.target.closest("[data-awb]"); if (li) showOrder(li.getAttribute("data-awb")); });
+  $("stTabs").addEventListener("click", function (e) { var b = e.target.closest("[data-st]"); if (b) { oState.status = b.getAttribute("data-st"); renderOrders(true); } });
+  $("courierSel").addEventListener("change", function (e) { oState.courier = e.target.value; renderOrders(true); });
+  $("q").addEventListener("input", function () { renderOrders(true); });
+  $("moreBtn").addEventListener("click", function () { oState.limit += 100; renderOrders(false); });
+  $("refreshBtn").addEventListener("click", function () { refreshOrders(true).then(function () { toast("Orders refreshed"); }); });
+  $("impInput").addEventListener("change", function (e) { if (e.target.files.length) onImport(Array.prototype.slice.call(e.target.files)); });
+  $("repDate").addEventListener("change", renderReports);
+  $("xlsBtn").addEventListener("click", exportXlsx);
+
+  $("saveCfg").addEventListener("click", async function () {
+    var url = $("cfgUrl").value.trim(), key = $("cfgKey").value.trim(), name = $("cfgName").value.trim();
+    var msg = $("cfgMsg");
+    cfg.name = name;
+    if (!url && !key) { cfg.url = ""; cfg.key = ""; put("oms:cfg", cfg); loadOrders(); renderSetup(); renderScanBits(); msg.textContent = "Saved. Practice mode."; return; }
+    if (!/^https:\/\/script\.google\.com\/macros\/s\/.+\/exec$/.test(url)) { msg.textContent = "The URL should look like https://script.google.com/macros/s/.../exec"; return; }
+    if (!key) { msg.textContent = "Enter the Access key from the Setup tab of your sheet."; return; }
+    msg.textContent = "Testing the connection…";
+    var old = { url: cfg.url, key: cfg.key };
+    cfg.url = url; cfg.key = key;
+    try {
+      var r = await api("ping");
+      if (!r.ok) { cfg.url = old.url; cfg.key = old.key; msg.textContent = errText(r.error); return; }
+      put("oms:cfg", cfg);
+      loadOrders(); S.net = "ok";
+      msg.textContent = "Connected. " + r.count + " parcels in the sheet.";
+      if (r.sheetUrl) { var a = $("sheetLink"); a.href = r.sheetUrl; a.hidden = false; put("oms:sheetUrl", r.sheetUrl); }
+      renderSetup(); await refreshOrders(true);
+    } catch (e) {
+      cfg.url = old.url; cfg.key = old.key;
+      msg.textContent = "Could not reach that URL. Check that it ends with /exec and that the deployment is set to “Who has access: Anyone”.";
+    }
+  });
+  $("useLocal").addEventListener("click", function () { cfg.url = ""; cfg.key = ""; put("oms:cfg", cfg); loadOrders(); renderSetup(); renderScanBits(); $("cfgMsg").textContent = "Practice mode on."; });
+  $("resetLocal").addEventListener("click", function () {
+    var b = $("resetLocal");
+    if (!b.dataset.armed) { b.dataset.armed = "1"; b.textContent = "Tap again to reset"; setTimeout(function () { delete b.dataset.armed; b.textContent = "Reset practice data"; }, 3500); return; }
+    delete b.dataset.armed; b.textContent = "Reset practice data";
+    try { localStorage.removeItem("oms:orders-local"); } catch (e) {}
+    S.log = []; S.recent = []; put("oms:log", []); put("oms:recent", []);
+    loadOrders(); renderScanBits(); toast("Practice data reset");
+  });
+  window.addEventListener("online", function () { S.net = "ok"; flush(); });
+  window.addEventListener("offline", function () { S.net = "bad"; setNet(); });
+  document.addEventListener("visibilitychange", function () { if (document.hidden) camStop(); });
+  setInterval(function () { if (remote() && !document.hidden && !S.queue.length) refreshOrders(false); }, 60000);
+
+  /* ---------------- boot ---------------- */
+  loadOrders();
+  var su = get("oms:sheetUrl", ""); if (su && remote()) { $("sheetLink").href = su; $("sheetLink").hidden = false; }
+  renderScanBits();
+  setNet();
+  if (remote()) { flush().then(function () { refreshOrders(false); }); } else if (!cfg.name) { /* first run */ }
+  if (get("oms:camAuto", false)) { camStart(); }
+})();
+</script>
+</body>
+</html>
